@@ -20,15 +20,10 @@ function App() {
 
   // Generator settings
   const [nozzleDiameter, setNozzleDiameter] = useState(0.4);
-  const [layerHeight, setLayerHeight] = useState(0.16);
-  const [turns, setTurns] = useState(150);
-  const [printerType, setPrinterType] = useState('X1/P1');
-  const [bedTemp, setBedTemp] = useState(60);
-
-  const [generateBasePad, setGenerateBasePad] = useState(false);
-  const [basePadThickness, setBasePadThickness] = useState(0.8);
-  const [autoBedLeveling, setAutoBedLeveling] = useState(true);
-  const [flowRatio, setFlowRatio] = useState(0.98);
+  const [bedTemp, setBedTemp] = useState(65);
+  const [turns, setTurns] = useState(100);
+  const [printSize, setPrintSize] = useState('240');
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
 
   const [spiralPoints, setSpiralPoints] = useState([]);
   const canvasRef = useRef(null);
@@ -40,6 +35,14 @@ function App() {
   const handleImageUpload = (e) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
+
+      // Validation: Only allow image files
+      if (!file.type.startsWith('image/')) {
+        alert('Помилка: Будь ласка, завантажте файл зображення (наприклад, JPG або PNG).');
+        e.target.value = null;
+        return;
+      }
+
       const reader = new FileReader();
       reader.addEventListener('load', () => {
         setImageSrc(reader.result);
@@ -86,27 +89,44 @@ function App() {
 
   const handleDownload = () => {
     if (spiralPoints.length === 0) return;
+
+    const parsedNozzle = parseFloat(nozzleDiameter);
+    // Dynamic layer height based on nozzle size for optimal print physics
+    const layerHeightMap = {
+      0.2: 0.12,
+      0.4: 0.16,
+      0.6: 0.24,
+      0.8: 0.32
+    };
+    const dynamicLayerHeight = layerHeightMap[parsedNozzle] || 0.16;
+
     const config = {
-      nozzleDiameter: parseFloat(nozzleDiameter),
-      layerHeight,
-      printerType,
+      nozzleDiameter: parsedNozzle,
+      layerHeight: dynamicLayerHeight,
+      printSize,
       bedTemp: parseInt(bedTemp, 10),
-      generateBasePad,
-      basePadThickness: parseFloat(basePadThickness),
-      turns: parseInt(turns, 10),
-      autoBedLeveling,
-      flowRatio: parseFloat(flowRatio)
+      turns: parseInt(turns, 10)
     };
     const gcode = generateGCode(spiralPoints, config);
     const blob = new Blob([gcode], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `spiral_art_${Date.now()}.gcode`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+
+    // Download G-code
+    const aGcode = document.createElement('a');
+    aGcode.href = url;
+    aGcode.download = `spiral_art_${printSize}_${Date.now()}.gcode`;
+    document.body.appendChild(aGcode);
+    aGcode.click();
+    document.body.removeChild(aGcode);
     URL.revokeObjectURL(url);
+
+    // Download 3mf from /pads/ folder synchronously
+    const a3mf = document.createElement('a');
+    a3mf.href = `/pads/base_pad_${printSize}.3mf`;
+    a3mf.download = `base_pad_${printSize}.3mf`;
+    document.body.appendChild(a3mf);
+    a3mf.click();
+    document.body.removeChild(a3mf);
   };
 
   // Render preview on canvas
@@ -127,47 +147,77 @@ function App() {
       const maxRadius = canvas.width / 2;
       const distanceBetweenTurns = maxRadius / turns;
 
+      // Match preview widths to G-code logic: max 95% of distance to prevent absolute black bleeding
       const minWidth = distanceBetweenTurns * 0.2;
-      const maxWidth = distanceBetweenTurns * 1.8;
+      const maxWidth = distanceBetweenTurns * 1.3; // 1.3 provides a good balance between realistic spread and preview darkness
 
       let prevPt = spiralPoints[0];
       let currentWidth = -1;
+      let lastDrawnIndex = 1;
 
-      ctx.beginPath();
-      ctx.moveTo(prevPt.x, prevPt.y);
+      const totalPoints = spiralPoints.length;
+      const duration = 2000; // 2 seconds animation
+      let startTime = null;
+      let animationFrameId;
+
       ctx.strokeStyle = '#1a1a1a';
 
-      for (let i = 1; i < spiralPoints.length; i++) {
-        const pt = spiralPoints[i];
-        const w = minWidth + (1 - pt.brightness) * (maxWidth - minWidth);
-        const roundedW = Math.round(w * 10) / 10; // Round to 1 decimal to group strokes
+      const animate = (timestamp) => {
+        if (!startTime) startTime = timestamp;
+        const progress = Math.min(1, (timestamp - startTime) / duration);
+        const targetIndex = Math.floor(progress * totalPoints);
 
-        if (roundedW !== currentWidth) {
-          ctx.stroke();
+        if (lastDrawnIndex < targetIndex) {
           ctx.beginPath();
           ctx.moveTo(prevPt.x, prevPt.y);
-          ctx.lineWidth = roundedW;
-          currentWidth = roundedW;
+
+          for (let i = lastDrawnIndex; i < targetIndex; i++) {
+            const pt = spiralPoints[i];
+            const w = minWidth + (1 - pt.brightness) * (maxWidth - minWidth);
+            const roundedW = Math.round(w * 10) / 10; // Round to 1 decimal to group strokes
+
+            if (roundedW !== currentWidth) {
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.moveTo(prevPt.x, prevPt.y);
+              ctx.lineWidth = roundedW;
+              currentWidth = roundedW;
+            }
+
+            ctx.lineTo(pt.x, pt.y);
+            prevPt = pt;
+          }
+          ctx.stroke();
+          lastDrawnIndex = targetIndex;
         }
 
-        ctx.lineTo(pt.x, pt.y);
-        prevPt = pt;
-      }
-      ctx.stroke();
+        if (progress < 1) {
+          animationFrameId = requestAnimationFrame(animate);
+        }
+      };
+
+      animationFrameId = requestAnimationFrame(animate);
+
+      // Cleanup animation if the component unmounts or spiralPoints change
+      return () => {
+        cancelAnimationFrame(animationFrameId);
+      };
     }
-  }, [spiralPoints, isCropping]);
+  }, [spiralPoints, isCropping, turns]);
 
   return (
     <div className="app-layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <h2>🌀 Спіральна картинка</h2>
-          <img src="/logo.svg" alt="Edutech Expert" className="sidebar-logo" />
+          <img src="/logo.png" alt="Edutech Expert" className="sidebar-logo" />
+          <button className="help-btn" onClick={() => setIsHelpModalOpen(true)}>
+            📺 Гайд по друку спіральною картиною
+          </button>
         </div>
 
         <div className="control-group">
           <label className="file-upload-btn">
-            📸 Вибрати зображення
+            📸 Обрати зображення
             <input type="file" accept="image/*" onChange={handleImageUpload} />
           </label>
         </div>
@@ -192,12 +242,16 @@ function App() {
         </div>
 
         <div className="control-group">
-          <label>Висота шару (мм)</label>
-          <select value={layerHeight} onChange={(e) => setLayerHeight(Number(e.target.value))}>
-            <option value="0.12">0.12 мм (Ультра)</option>
-            <option value="0.16">0.16 мм (Оптимально)</option>
-            <option value="0.20">0.20 мм (Грубо)</option>
-          </select>
+          <label>Температура столу (°C): {bedTemp}°C</label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value={bedTemp}
+            onChange={(e) => setBedTemp(e.target.value)}
+            className="slider"
+          />
         </div>
 
         <div className="control-group">
@@ -206,87 +260,18 @@ function App() {
             type="number"
             value={turns}
             onChange={(e) => setTurns(Number(e.target.value))}
-            min="10" max="500" step="10"
+            min="30" max="120" step="1"
           />
         </div>
 
         <div className="control-group">
-          <label>Принтер</label>
-          <select value={printerType} onChange={(e) => setPrinterType(e.target.value)}>
-            <option value="X1/P1">Bambu Lab X1 / P1 / A1 (256x256)</option>
-            <option value="A1 mini">Bambu Lab A1 mini (180x180)</option>
+          <label>Розмір картини</label>
+          <select value={printSize} onChange={(e) => setPrintSize(e.target.value)}>
+            <option value="160">160x160 (Bambu Lab A1 mini)</option>
+            <option value="240">240x240 (X1 / P1 / A1)</option>
+            <option value="320">320x320 (H2 series)</option>
           </select>
         </div>
-
-        <div className="control-group">
-          <label>Температура столу (°C)</label>
-          <input
-            type="number"
-            value={bedTemp}
-            onChange={(e) => setBedTemp(e.target.value)}
-            onBlur={(e) => {
-              let val = parseInt(e.target.value, 10);
-              if (isNaN(val)) val = 60;
-              if (val < 30) val = 30;
-              if (val > 80) val = 80;
-              setBedTemp(val);
-            }}
-            min="30" max="80"
-          />
-        </div>
-
-        <div className="control-group">
-          <label>Множник потоку підложки (Flow Ratio)</label>
-          <input
-            type="number"
-            value={flowRatio}
-            onChange={(e) => setFlowRatio(e.target.value)}
-            onBlur={(e) => {
-              let val = parseFloat(e.target.value);
-              if (isNaN(val)) val = 0.98;
-              if (val < 0.5) val = 0.5;
-              if (val > 1.5) val = 1.5;
-              setFlowRatio(val);
-            }}
-            min="0.5" max="1.5" step="0.01"
-          />
-        </div>
-
-        <div className="control-group">
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '10px' }}>
-            <input
-              type="checkbox"
-              checked={generateBasePad}
-              onChange={(e) => setGenerateBasePad(e.target.checked)}
-              style={{ width: '18px', height: '18px' }}
-            />
-            Створити підкладку (білу)
-          </label>
-        </div>
-
-        <div className="control-group">
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '10px' }}>
-            <input
-              type="checkbox"
-              checked={autoBedLeveling}
-              onChange={(e) => setAutoBedLeveling(e.target.checked)}
-              style={{ width: '18px', height: '18px' }}
-            />
-            Калібрування столу (Рекомендовано)
-          </label>
-        </div>
-
-        {generateBasePad && (
-          <div className="control-group">
-            <label>Товщина підкладки (мм)</label>
-            <input
-              type="number"
-              value={basePadThickness}
-              onChange={(e) => setBasePadThickness(Number(e.target.value))}
-              min="0.2" max="5.0" step="0.2"
-            />
-          </div>
-        )}
 
         <button className="btn generate-btn" onClick={handleGenerate} disabled={!image || isCropping}>
           Згенерувати спіраль
@@ -356,6 +341,39 @@ function App() {
           </div>
         )}
       </main>
+
+      {isHelpModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsHelpModalOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setIsHelpModalOpen(false)}>×</button>
+            <h3>Як створити спіральну картину</h3>
+
+            <div className="video-container">
+              {/* Заміни 'VIDEO_ID' на реальний ID відео з YouTube */}
+              <iframe
+                src="https://www.youtube.com/watch?v=-NRKDgkUtJM"
+                title="Відеоінструкція"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen>
+              </iframe>
+            </div>
+
+            <ol className="steps-list">
+              <li><strong>Налаштування:</strong> Обери свій принтер та сопло.</li>
+              <li><strong>Завантаження:</strong> Завантаж фото (краще контрастне)</li>
+              <li><strong>Кадрування:</strong> Обріж фото та натисни кнопку "Згенерувати спіраль".</li>
+              <li><strong>Налаштування витків:</strong> Якщо прев'ю виглядає занадто світлим або деталі нечіткі, збільш кількість витків і знову натисни "Згенерувати".</li>
+              <li><strong>Завантаження G-Code:</strong> Натисни зелену кнопку завантаження. На твій комп'ютер збережуться два файли: <code>.3mf</code> (біла підкладка) та <code>.gcode</code> (чорна спіраль).</li>
+              <li><strong>Перший етап друку:</strong> Відкрий завантажений файл <code>.3mf</code> у своєму слайсері (Bambu Studio) та відправ на друк <strong>світлим</strong> пластиком.</li>
+              <li><strong>Другий етап друку:</strong> Коли принтер завершить друк підкладки, <strong>НЕ ЗНІМАЙ ЇЇ ЗІ СТОЛУ!</strong> Заправ у принтер <strong>темним</strong> пластик і просто запусти скачаний файл <code>.gcode</code> як нове завдання.</li>
+            </ol>
+
+            <div className="warning-text">
+              ⚠️ УВАГА: Перед запуском спіралі, вимкнути калібрування столу.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

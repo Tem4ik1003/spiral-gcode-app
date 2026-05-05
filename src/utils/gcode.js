@@ -22,8 +22,8 @@ M204 S2000 ; Set acceleration to 2000 mm/s^2
 M205 X5 Y5 ; Set jerk to 5
 ; ------------------------------
 
-G28 ; home all axes (Z-homing will be accurate because no oozing at 150C)
-${autoBedLeveling ? 'G29 ; Auto Bed Leveling (probes the bed to compensate for warping)' : '; G29 Auto Bed Leveling disabled'}
+G28 ; home all axes (Z-homing will touch the pad and set Z=0 at the top of the pad)
+; G29 Auto Bed Leveling intentionally disabled for this print
 
 M104 S220 ; set actual print temp
 M109 S220 ; wait for actual print temp
@@ -45,19 +45,27 @@ M84 ; disable motors
 `;
 
 export const generateGCode = (points, config) => {
-  const { nozzleDiameter, layerHeight, printerType, bedTemp, generateBasePad, basePadThickness, turns, autoBedLeveling, flowRatio = 0.98 } = config;
+  const { nozzleDiameter, layerHeight, printSize, bedTemp, turns } = config;
 
   const gcodeLines = [];
-  gcodeLines.push(getStartGCode(bedTemp, autoBedLeveling));
+  gcodeLines.push(getStartGCode(bedTemp));
 
-  let maxPrintRadius = 105; // Default for X1/P1 (256x256 bed) to avoid front-left cutter exclusion zone
-  let cx = 128;
-  let cy = 128;
+  let maxPrintRadius = 110;
+  let cx = 110;
+  let cy = 110;
 
-  if (printerType === 'A1 mini') {
-    maxPrintRadius = 75; // 180x180 bed
-    cx = 90;
+  if (printSize === '160') {
+    maxPrintRadius = 80; // 160x160 picture
+    cx = 90;  // Center of Bambu A1 Mini bed (180x180)
     cy = 90;
+  } else if (printSize === '240') {
+    maxPrintRadius = 120; // 240x240 picture
+    cx = 128; // Center of Bambu X1/P1/A1 bed (256x256)
+    cy = 128;
+  } else if (printSize === '320') {
+    maxPrintRadius = 160; // 320x320 picture
+    cx = 160; // Assuming bed size is 320x320
+    cy = 160;
   }
 
   // Calculate dynamic line width based on pitch to prevent vertical stacking (over-extrusion)
@@ -75,78 +83,9 @@ export const generateGCode = (points, config) => {
   const cxPixel = points[0].x;
   const cyPixel = points[0].y;
 
-  let currentZ = 0;
-
-  if (generateBasePad && basePadThickness > 0) {
-    gcodeLines.push(`T0 ; Select Tool 0 (White)`);
-    const layers = Math.max(1, Math.round(basePadThickness / layerHeight));
-    const padWidth = 0.42;
-    const filamentArea = Math.PI * Math.pow(1.75 / 2, 2);
-    // User-configurable flow ratio (density) multiplier
-    const basePadFlowMultiplier = flowRatio;
-
-    for (let l = 1; l <= layers; l++) {
-      // First layer needs extra squish (60% of layer height) to stick properly to the bed
-      currentZ = l === 1 ? layerHeight * 0.6 : (l - 1) * layerHeight + (layerHeight * 0.6);
-      gcodeLines.push(`;LAYER_CHANGE`);
-      gcodeLines.push(`;Z:${currentZ.toFixed(3)}`);
-      gcodeLines.push(`;HEIGHT:${layerHeight.toFixed(3)}`);
-      gcodeLines.push(`;TYPE:Solid infill`);
-
-      gcodeLines.push(`G1 Z${currentZ.toFixed(3)} F2400`);
-
-      // 1. Draw 2 perimeters
-      for (let p = 0; p < 2; p++) {
-        let r = maxPrintRadius - p * padWidth;
-        let segments = Math.max(32, Math.floor(2 * Math.PI * r)); // 1mm segments
-        let prevX = cx + r;
-        let prevY = cy;
-        gcodeLines.push(`G1 X${prevX.toFixed(3)} Y${prevY.toFixed(3)} F4800`); // move to start (doubled speed)
-
-        for (let i = 1; i <= segments; i++) {
-          let angle = (i / segments) * 2 * Math.PI;
-          let x = cx + r * Math.cos(angle);
-          let y = cy + r * Math.sin(angle);
-
-          let dx = x - prevX;
-          let dy = y - prevY;
-          let dist = Math.sqrt(dx * dx + dy * dy);
-          let e = ((padWidth * layerHeight * dist) / filamentArea) * basePadFlowMultiplier;
-
-          gcodeLines.push(`G1 X${x.toFixed(3)} Y${y.toFixed(3)} E${e.toFixed(5)} F3000`); // extrude perimeter (doubled speed)
-          prevX = x;
-          prevY = y;
-        }
-      }
-
-      // 2. Rectilinear Infill
-      let isLeftToRight = true;
-      const innerRadius = maxPrintRadius - 2 * padWidth;
-      const infillSpacing = padWidth * 0.85; // 15% overlap to ensure 0 gap
-
-      for (let yOffset = -innerRadius; yOffset <= innerRadius; yOffset += infillSpacing) {
-        let xBound = Math.sqrt(innerRadius * innerRadius - yOffset * yOffset);
-        let x1 = cx + (isLeftToRight ? -xBound : xBound);
-        let x2 = cx + (isLeftToRight ? xBound : -xBound);
-        let y = cy + yOffset;
-
-        gcodeLines.push(`G1 X${x1.toFixed(3)} Y${y.toFixed(3)} F7200`); // move to start (doubled speed)
-
-        let dist = Math.abs(x2 - x1);
-        let e = ((padWidth * layerHeight * dist) / filamentArea) * basePadFlowMultiplier;
-        gcodeLines.push(`G1 X${x2.toFixed(3)} Y${y.toFixed(3)} E${e.toFixed(5)} F4800`); // extrude infill (doubled speed)
-
-        isLeftToRight = !isLeftToRight;
-      }
-    }
-
-    gcodeLines.push(`;PAUSE FOR FILAMENT CHANGE`);
-    gcodeLines.push(`M400 U1 ; Pause for user intervention`);
-    gcodeLines.push(`T1 ; Select Tool 1 (Black)`);
-    gcodeLines.push(`G92 E0 ; reset extruder after pause`);
-  }
-
-  currentZ += layerHeight * 0.8; // Increased Z lift to give more distance between base pad and spiral
+  // Spiral starts like a new print, Z=0 is the top of the pad because of G28
+  // Fixed starting height of 0.14mm for the spiral art distance
+  let currentZ = 0.14;
 
   gcodeLines.push(`G1 X${cx.toFixed(3)} Y${cy.toFixed(3)} F2400`);
   gcodeLines.push(`G1 Z${currentZ.toFixed(3)} F2400`);
