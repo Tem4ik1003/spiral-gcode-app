@@ -141,7 +141,8 @@ Error generating stack: `+i.message+`
 ; total_extruders = 2
 ; filament_type = ${r};${r}
 
-${i} ; Ensure extruder is selected at the very start
+${i} ; Select active extruder
+${l==="h2d"?"M104 T0 S0 ; Turn off left nozzle":""}
 ${l==="h2d"?"M605 S1 ; Set IDEX to Auto-park mode":""}
 
 M140 S${e} ; set bed temp
