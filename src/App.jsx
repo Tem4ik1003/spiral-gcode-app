@@ -6,23 +6,24 @@ import { generateGCode } from './utils/gcode';
 import './App.css';
 
 function App() {
-  // Original uploaded image URL for cropping
   const [imageSrc, setImageSrc] = useState(null);
 
-  // Cropper state
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
   const [isCropping, setIsCropping] = useState(false);
 
-  // Final image object ready for spiral generation
   const [image, setImage] = useState(null);
 
-  // Generator settings
   const [nozzleDiameter, setNozzleDiameter] = useState(0.4);
-  const [bedTemp, setBedTemp] = useState(65);
+  const [bedTemp, setBedTemp] = useState(60);
+  const [nozzleTemp, setNozzleTemp] = useState(230);
+  const [plateType, setPlateType] = useState('Textured PEI Plate');
+  const [filamentType, setFilamentType] = useState('PLA');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [turns, setTurns] = useState(100);
-  const [printSize, setPrintSize] = useState('240');
+  const [printerModel, setPrinterModel] = useState('x1p1a1');
+  const [imageSize, setImageSize] = useState('240');
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
 
   const [spiralPoints, setSpiralPoints] = useState([]);
@@ -36,7 +37,6 @@ function App() {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
 
-      // Validation: Only allow image files
       if (!file.type.startsWith('image/')) {
         alert('Помилка: Будь ласка, завантажте файл зображення (наприклад, JPG або PNG).');
         e.target.value = null;
@@ -46,10 +46,9 @@ function App() {
       const reader = new FileReader();
       reader.addEventListener('load', () => {
         setImageSrc(reader.result);
-        setIsCropping(true); // Open cropper
+        setIsCropping(true); 
       });
       reader.readAsDataURL(file);
-      // Reset input
       e.target.value = null;
     }
   };
@@ -60,7 +59,7 @@ function App() {
       const img = await createImage(croppedImageUrl);
       setImage(img);
       setIsCropping(false);
-      setSpiralPoints([]); // reset old preview
+      setSpiralPoints([]); 
     } catch (e) {
       console.error(e);
     }
@@ -68,7 +67,7 @@ function App() {
 
   const cancelCrop = () => {
     setIsCropping(false);
-    if (!image) setImageSrc(null); // Clear if no previous image
+    if (!image) setImageSrc(null); 
   };
 
   const openCropper = () => {
@@ -91,7 +90,6 @@ function App() {
     if (spiralPoints.length === 0) return;
 
     const parsedNozzle = parseFloat(nozzleDiameter);
-    // Dynamic layer height based on nozzle size for optimal print physics
     const layerHeightMap = {
       0.2: 0.12,
       0.4: 0.16,
@@ -103,60 +101,65 @@ function App() {
     const config = {
       nozzleDiameter: parsedNozzle,
       layerHeight: dynamicLayerHeight,
-      printSize,
+      printerModel,
+      imageSize,
       bedTemp: parseInt(bedTemp, 10),
+      nozzleTemp: parseInt(nozzleTemp, 10),
+      plateType,
+      filamentType,
       turns: parseInt(turns, 10)
     };
     const gcode = generateGCode(spiralPoints, config);
     const blob = new Blob([gcode], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
 
-    // Download G-code
     const aGcode = document.createElement('a');
     aGcode.href = url;
-    aGcode.download = `spiral_art_${printSize}_${Date.now()}.gcode`;
+    aGcode.download = `spiral_art_${imageSize}_${Date.now()}.gcode`;
     document.body.appendChild(aGcode);
     aGcode.click();
     document.body.removeChild(aGcode);
     URL.revokeObjectURL(url);
 
-    // Download 3mf from /pads/ folder synchronously
     const a3mf = document.createElement('a');
-    a3mf.href = `/pads/base_pad_${printSize}.3mf`;
-    a3mf.download = `base_pad_${printSize}.3mf`;
+    a3mf.href = `/pads/base_pad_${imageSize}.3mf`;
+    a3mf.download = `base_pad_${imageSize}.3mf`;
     document.body.appendChild(a3mf);
     a3mf.click();
     document.body.removeChild(a3mf);
   };
 
-  // Render preview on canvas
   useEffect(() => {
     if (spiralPoints.length > 0 && canvasRef.current && !isCropping) {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Background (bed)
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const bgRadius = canvas.width / 2;
+
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, bgRadius, 0, 2 * Math.PI);
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fill();
 
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      // Dynamic line width based on number of turns
       const maxRadius = canvas.width / 2;
+      const currentImageRadius = (parseInt(imageSize, 10) / 2);
       const distanceBetweenTurns = maxRadius / turns;
 
-      // Match preview widths to G-code logic: max 95% of distance to prevent absolute black bleeding
       const minWidth = distanceBetweenTurns * 0.2;
-      const maxWidth = distanceBetweenTurns * 1.3; // 1.3 provides a good balance between realistic spread and preview darkness
+      const maxWidth = distanceBetweenTurns * 1.3; 
 
       let prevPt = spiralPoints[0];
       let currentWidth = -1;
       let lastDrawnIndex = 1;
 
       const totalPoints = spiralPoints.length;
-      const duration = 2000; // 2 seconds animation
+      const duration = 2000; 
       let startTime = null;
       let animationFrameId;
 
@@ -198,7 +201,6 @@ function App() {
 
       animationFrameId = requestAnimationFrame(animate);
 
-      // Cleanup animation if the component unmounts or spiralPoints change
       return () => {
         cancelAnimationFrame(animationFrameId);
       };
@@ -210,6 +212,7 @@ function App() {
       <aside className="sidebar">
         <div className="sidebar-header">
           <img src="/logo.png" alt="Edutech Expert" className="sidebar-logo" />
+
           <button className="help-btn" onClick={() => setIsHelpModalOpen(true)}>
             📺 Гайд по друку спіральною картиною
           </button>
@@ -227,7 +230,7 @@ function App() {
             <div className="image-preview">
               <img src={image.src} alt="Cropped preview" />
             </div>
-            <button className="btn secondary-btn" onClick={openCropper}>Змінити кадрування</button>
+            <button className="btn secondary-btn" onClick={openCropper}>Змінити застосування</button>
           </div>
         )}
 
@@ -264,12 +267,80 @@ function App() {
           />
         </div>
 
+        <div className="advanced-settings-toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
+          <span>{showAdvanced ? '▼' : '▶'} Додаткові налаштування</span>
+        </div>
+
+        {showAdvanced && (
+          <div className="advanced-settings-panel">
+            <div className="control-group">
+              <label>Тип пластику</label>
+              <select value={filamentType} onChange={(e) => {
+                const selectedFilament = e.target.value;
+                setFilamentType(selectedFilament);
+                if (selectedFilament === 'PLA') setNozzleTemp(230);
+                else if (selectedFilament === 'PETG') setNozzleTemp(245);
+                else if (selectedFilament === 'ABS') setNozzleTemp(260);
+                else if (selectedFilament === 'TPU') setNozzleTemp(220);
+              }}>
+                <option value="PLA">PLA</option>
+                <option value="PETG">PETG</option>
+                <option value="ABS">ABS</option>
+                <option value="TPU">TPU</option>
+              </select>
+            </div>
+            <div className="control-group" style={{ marginTop: '10px' }}>
+              <label>Тип пластини</label>
+              <select value={plateType} onChange={(e) => {
+                const selectedPlate = e.target.value;
+                setPlateType(selectedPlate);
+                if (selectedPlate === 'Cool Plate') setBedTemp(35);
+                else setBedTemp(60);
+              }}>
+                <option value="Textured PEI Plate">Textured PEI Plate</option>
+                <option value="Smooth PEI Plate">Smooth PEI Plate / High Temp</option>
+                <option value="Cool Plate">Cool Plate</option>
+              </select>
+            </div>
+            <div className="control-group" style={{ marginTop: '10px' }}>
+              <label>Температура сопла (°C): {nozzleTemp}°C</label>
+              <input
+                type="range"
+                min="180"
+                max="260"
+                step="5"
+                value={nozzleTemp}
+                onChange={(e) => setNozzleTemp(e.target.value)}
+                className="slider"
+              />
+            </div>
+          </div>
+        )}
+
         <div className="control-group">
-          <label>Розмір картини</label>
-          <select value={printSize} onChange={(e) => setPrintSize(e.target.value)}>
-            <option value="160">160x160 (Bambu Lab A1 mini)</option>
-            <option value="240">240x240 (X1 / P1 / A1)</option>
-            <option value="320">320x320 (H2 series)</option>
+          <label>Ваш принтер</label>
+          <select value={printerModel} onChange={(e) => {
+            const model = e.target.value;
+            setPrinterModel(model);
+            if (model === 'a1mini') setImageSize('160');
+            else if (model === 'x1p1a1' && imageSize === '290') setImageSize('240');
+          }}>
+            <option value="a1mini">Bambu Lab A1 mini</option>
+            <option value="x1p1a1">Bambu Lab X1 / P1 / A1</option>
+            <option value="h2d">H2D(Right Nozzle)</option>
+          </select>
+        </div>
+
+        <div className="control-group">
+          <label>Розмір картинки</label>
+          <select value={imageSize} onChange={(e) => setImageSize(e.target.value)}>
+            <option value="160">160x160</option>
+            {(printerModel === 'x1p1a1' || printerModel === 'h2d' || printerModel === 'std320') && (
+              <option value="240">240x240</option>
+            )}
+            {(printerModel === 'h2d') && (
+              <option value="290">290x290</option>
+            )}
           </select>
         </div>
 
@@ -284,9 +355,14 @@ function App() {
         <div className="info-box">
           <strong>💡 Як працює товщина:</strong><br />
           Товщина лінії регулюється зміною потоку пластику (параметр <code>E</code> в G-Code).
-          На темних пікселях принтер видавлює в 2.5 рази більше пластику, формуючи товсту чорну лінію.
+          На темних пікселях принтер зверху в 2.5 рази більше пластику, формуючи товсту чорну лінію.
           На світлих пікселях екструзія падає майже до нуля (0.2 від діаметра сопла), залишаючи видимим білий стіл.
         </div>
+
+        <a href="https://www.edutechexpert.com.ua/" target="_blank" rel="noopener noreferrer" className="store-link">
+          <img src="/logo.png" alt="Shop Icon" className="store-icon" />
+          <span>Наш магазин</span>
+        </a>
       </aside>
 
       <main className="preview-area">
@@ -320,7 +396,7 @@ function App() {
               />
               <div className="cropper-actions">
                 <button className="btn secondary-btn" onClick={cancelCrop}>Скасувати</button>
-                <button className="btn generate-btn" onClick={applyCrop}>Застосувати кадрування</button>
+                <button className="btn generate-btn" onClick={applyCrop}>Застосувати малюнок</button>
               </div>
             </div>
           </div>
@@ -361,7 +437,7 @@ function App() {
             <ol className="steps-list">
               <li><strong>Налаштування:</strong> Обери свій принтер та сопло.</li>
               <li><strong>Завантаження:</strong> Завантаж фото (краще контрастне)</li>
-              <li><strong>Кадрування:</strong> Обріж фото та натисни кнопку "Згенерувати спіраль".</li>
+              <li><strong>Генерація:</strong> Обріж фото та натисни кнопку "Згенерувати спіраль".</li>
               <li><strong>Налаштування витків:</strong> Якщо прев'ю виглядає занадто світлим або деталі нечіткі, збільш кількість витків і знову натисни "Згенерувати".</li>
               <li><strong>Завантаження G-Code:</strong> Натисни зелену кнопку завантаження. На твій комп'ютер збережуться два файли: <code>.3mf</code> (біла підкладка) та <code>.gcode</code> (чорна спіраль).</li>
               <li><strong>Перший етап друку:</strong> Відкрий завантажений файл <code>.3mf</code> у своєму слайсері (Bambu Studio) та відправ на друк <strong>світлим</strong> пластиком.</li>
@@ -371,6 +447,12 @@ function App() {
             <div className="warning-text">
               ⚠️ УВАГА: Перед запуском спіралі, вимкнути калібрування столу.
             </div>
+
+            {printerModel === 'h2d' && (
+              <div className="warning-text" style={{ backgroundColor: '#e0e7ff', color: '#3730a3', marginTop: '10px' }}>
+                ℹ️ <strong>Для принтера H2D:</strong> Білий пластик заправте в ЛІВЕ сопло і надрукуйте підкладку. Чорний пластик заправте в ПРАВЕ сопло — файл спіралі автоматично включить праве сопло!
+              </div>
+            )}
           </div>
         </div>
       )}

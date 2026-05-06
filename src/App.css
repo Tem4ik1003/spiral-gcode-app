@@ -59,6 +59,31 @@ body {
   gap: 8px;
 }
 
+.advanced-settings-toggle {
+  cursor: pointer;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid #e2e8f0;
+  margin-top: 10px;
+  transition: color 0.2s;
+}
+
+.advanced-settings-toggle:hover {
+  color: #3b82f6;
+}
+
+.advanced-settings-panel {
+  background-color: #f8fafc;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  border: 1px solid #e2e8f0;
+}
+
 .control-group label {
   font-size: 14px;
   font-weight: 600;
@@ -294,6 +319,35 @@ canvas {
   transform: translateY(-2px);
   box-shadow: 0 6px 10px -1px rgba(59, 130, 246, 0.4);
   color: white;
+}
+
+.store-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-decoration: none;
+  color: #1e293b;
+  font-weight: 600;
+  font-size: 14px;
+  background-color: #f8fafc;
+  padding: 12px 15px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+  margin-top: 10px;
+}
+
+.store-link:hover {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.store-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
 }
 
 .modal-overlay {

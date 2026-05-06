@@ -1,13 +1,15 @@
-// Standard Start G-Code for Bambu X1/P1
-const getStartGCode = (bedTemp, autoBedLeveling) => `
+const getStartGCode = (bedTemp, nozzleTemp, plateType, filamentType, autoBedLeveling, extruder = 'T0') => `
 ;FLAVOR:Marlin
 ;TYPE:Custom
-; Spiral Art G-Code for Bambu Lab
+; Spiral Art G-Code
 ; Bed Temp: ${bedTemp}
+; curr_bed_type={${plateType}}
 ; filament_colour = #FFFFFF;#000000
 ; extruder_colour = #FFFFFF;#000000
 ; total_extruders = 2
-; filament_type = PLA;PLA
+; filament_type = ${filamentType};${filamentType}
+
+${extruder} ; Activate selected extruder
 
 M140 S${bedTemp} ; set bed temp
 M104 S150 ; set extruder temp to no-ooze temp (150C)
@@ -25,55 +27,56 @@ M205 X5 Y5 ; Set jerk to 5
 G28 ; home all axes (Z-homing will touch the pad and set Z=0 at the top of the pad)
 ; G29 Auto Bed Leveling intentionally disabled for this print
 
-M104 S220 ; set actual print temp
-M109 S220 ; wait for actual print temp
+M104 S${nozzleTemp} ; set actual print temp
+M109 S${nozzleTemp} ; wait for actual print temp
 
 G92 E0 ; reset extruder
 `;
 
-const getEndGCode = () => `
+const getEndGCode = (extruder = 'T0') => `
 ; End G-Code
 G91 ; relative coordinates
 G1 Z10 F3000 ; lift Z
 G90 ; absolute coordinates
 G1 X250 Y250 F3000 ; move toolhead away
 
-M104 S0 ; turn off extruder
+M104 S0 ${extruder} ; turn off active extruder
 M140 S0 ; turn off bed
 M107 ; turn off fan
 M84 ; disable motors
 `;
 
 export const generateGCode = (points, config) => {
-  const { nozzleDiameter, layerHeight, printSize, bedTemp, turns } = config;
+  const { nozzleDiameter, layerHeight, printerModel, imageSize, bedTemp, nozzleTemp, plateType, filamentType, turns } = config;
+
+  const extruder = printerModel === 'h2d' ? 'T1' : 'T0';
 
   const gcodeLines = [];
-  gcodeLines.push(getStartGCode(bedTemp));
+  gcodeLines.push(getStartGCode(bedTemp, nozzleTemp, plateType, filamentType, false, extruder));
 
-  let maxPrintRadius = 110;
-  let cx = 110;
-  let cy = 110;
+  let cx = 128;
+  let cy = 128;
 
-  if (printSize === '160') {
-    maxPrintRadius = 80; // 160x160 picture
-    cx = 90;  // Center of Bambu A1 Mini bed (180x180)
+  if (printerModel === 'a1mini') {
+    cx = 90;
     cy = 90;
-  } else if (printSize === '240') {
-    maxPrintRadius = 120; // 240x240 picture
-    cx = 128; // Center of Bambu X1/P1/A1 bed (256x256)
+  } else if (printerModel === 'x1p1a1') {
+    cx = 128;
     cy = 128;
-  } else if (printSize === '320') {
-    maxPrintRadius = 160; // 320x320 picture
-    cx = 160; // Assuming bed size is 320x320
+  } else if (printerModel === 'h2d') {
+    cx = 175;
+    cy = 160;
+  } else if (printerModel === 'std320') {
+    cx = 175;
     cy = 160;
   }
 
-  // Calculate dynamic line width based on pitch to prevent vertical stacking (over-extrusion)
+  const parsedSize = parseInt(imageSize, 10);
+  let maxPrintRadius = (parsedSize / 2) - 2; 
+
   const pitch = maxPrintRadius / turns;
-  // Ensure minWidth is not so small that it prints in the air.
-  // User requested minimum 0.35mm line width so thin lines don't print as hair and stick better.
   const minWidth = Math.max(0.35, nozzleDiameter * 0.5);
-  const maxWidth = pitch * 0.95; // Leaves a 5% gap so thick lines don't merge together completely
+  const maxWidth = pitch * 0.95; 
 
   if (points.length === 0) return '';
 
@@ -83,14 +86,11 @@ export const generateGCode = (points, config) => {
   const cxPixel = points[0].x;
   const cyPixel = points[0].y;
 
-  // Spiral starts like a new print, Z=0 is the top of the pad because of G28
-  // Fixed starting height of 0.14mm for the spiral art distance
   let currentZ = 0.14;
 
   gcodeLines.push(`G1 X${cx.toFixed(3)} Y${cy.toFixed(3)} F2400`);
   gcodeLines.push(`G1 Z${currentZ.toFixed(3)} F2400`);
 
-  // Bambu Studio / PrusaSlicer specific comments to force preview rendering
   gcodeLines.push(`;LAYER_CHANGE`);
   gcodeLines.push(`;Z:${currentZ.toFixed(3)}`);
   gcodeLines.push(`;HEIGHT:${layerHeight.toFixed(3)}`);
@@ -100,7 +100,6 @@ export const generateGCode = (points, config) => {
   let prevY = cy;
   let firstArtPoint = true;
 
-  // Extrusion multiplier constant to increase flow and help thin lines print reliably
   const flowMultiplier = 1.4;
 
   for (let i = 1; i < points.length; i++) {
@@ -119,14 +118,13 @@ export const generateGCode = (points, config) => {
     const volume = w * layerHeight * distance * flowMultiplier;
     const eLength = volume / filamentArea;
 
-    // Explicitly add F2400 (40 mm/s) to EVERY line
     gcodeLines.push(`G1 X${x.toFixed(3)} Y${y.toFixed(3)} E${eLength.toFixed(5)} F2400`);
 
     prevX = x;
     prevY = y;
   }
 
-  gcodeLines.push(getEndGCode());
+  gcodeLines.push(getEndGCode(extruder));
 
   return gcodeLines.join('\n');
 };
