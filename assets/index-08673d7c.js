@@ -142,8 +142,7 @@ Error generating stack: `+i.message+`
 ; filament_type = ${r};${r}
 
 M140 S${e} ; set bed temp
-${l==="h2d"?`M104 S150 T0 ; Ensure T0 is at idle
-M104 S150 T1 ; Ensure T1 is at idle`:`M104 S150 ${i}`}
+M104 S150 ${i} ; set extruder temp to no-ooze temp (150C)
 M190 S${e} ; wait for bed temp
 
 G90 ; absolute coordinates
