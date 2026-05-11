@@ -18,7 +18,7 @@ body {
 .sidebar {
   width: 350px;
   background-color: white;
-  box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.05);
   padding: 20px;
   overflow-y: auto;
   display: flex;
@@ -172,6 +172,7 @@ body {
 .generate-btn {
   background-color: #3b82f6;
 }
+
 .generate-btn:hover:not(:disabled) {
   background-color: #2563eb;
 }
@@ -179,6 +180,7 @@ body {
 .download-btn {
   background-color: #00A65A;
 }
+
 .download-btn:hover:not(:disabled) {
   background-color: #008f4d;
 }
@@ -195,7 +197,7 @@ body {
 
 .canvas-container {
   background: white;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
   border-radius: 8px;
   width: 800px;
   height: 800px;
@@ -224,6 +226,7 @@ canvas {
   color: #1e293b;
   width: 100%;
 }
+
 .secondary-btn:hover {
   background-color: #94a3b8;
 }
@@ -244,7 +247,7 @@ canvas {
   background: #333;
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
 }
 
 .cropper-wrapper {
@@ -286,7 +289,7 @@ canvas {
   color: #166534;
   line-height: 1.6;
   margin-top: 20px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 .info-box code {
@@ -322,32 +325,26 @@ canvas {
 }
 
 .store-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+  display: block;
+  text-align: center;
   text-decoration: none;
-  color: #1e293b;
-  font-weight: 600;
-  font-size: 14px;
-  background-color: #f8fafc;
-  padding: 12px 15px;
+  color: #3b82f6;
+  font-weight: 700;
+  font-size: 16px;
+  background-color: #f1f5f9;
+  padding: 14px;
   border-radius: 12px;
   border: 1px solid #e2e8f0;
   transition: all 0.2s ease;
-  margin-top: 10px;
+  margin-top: 20px;
 }
 
 .store-link:hover {
-  background-color: #f1f5f9;
-  border-color: #cbd5e1;
-  transform: translateY(-1px);
-}
-
-.store-icon {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
+  background-color: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
 }
 
 .modal-overlay {
@@ -401,7 +398,8 @@ canvas {
 
 .video-container {
   position: relative;
-  padding-bottom: 56.25%; /* 16:9 aspect ratio */
+  padding-bottom: 56.25%;
+  /* 16:9 aspect ratio */
   height: 0;
   overflow: hidden;
   border-radius: 8px;

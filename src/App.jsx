@@ -122,7 +122,7 @@ function App() {
     URL.revokeObjectURL(url);
 
     const a3mf = document.createElement('a');
-    a3mf.href = `/pads/base_pad_${imageSize}.3mf`;
+    a3mf.href = `pads/base_pad_${imageSize}.3mf`;
     a3mf.download = `base_pad_${imageSize}.3mf`;
     document.body.appendChild(a3mf);
     a3mf.click();
@@ -211,7 +211,7 @@ function App() {
     <div className="app-layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <img src="/logo.png" alt="Edutech Expert" className="sidebar-logo" />
+          <img src="logo.png" alt="Edutech Expert" className="sidebar-logo" />
 
           <button className="help-btn" onClick={() => setIsHelpModalOpen(true)}>
             📺 Гайд по друку спіральною картиною
@@ -360,8 +360,7 @@ function App() {
         </div>
 
         <a href="https://www.edutechexpert.com.ua/" target="_blank" rel="noopener noreferrer" className="store-link">
-          <img src="/logo.png" alt="Shop Icon" className="store-icon" />
-          <span>Наш магазин</span>
+          Наш магазин
         </a>
       </aside>
 
