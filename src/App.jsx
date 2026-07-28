@@ -22,8 +22,12 @@ function App() {
   const [filamentType, setFilamentType] = useState('PLA');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [turns, setTurns] = useState(100);
+  const [contrast, setContrast] = useState(1.5);
+  const [invert, setInvert] = useState(false);
   const [printerModel, setPrinterModel] = useState('x1p1a1');
   const [imageSize, setImageSize] = useState('240');
+  const [enablePad, setEnablePad] = useState(true);
+  const [padLayers, setPadLayers] = useState(5);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
 
   const [spiralPoints, setSpiralPoints] = useState([]);
@@ -79,7 +83,7 @@ function App() {
       if (!image) return;
       const resolution = 800;
       const imageData = getImageData(image, resolution, resolution);
-      const points = generateSpiralPoints(imageData, turns);
+      const points = generateSpiralPoints(imageData, turns, { contrast, invert });
       setSpiralPoints(points);
     } catch (e) {
       alert("Помилка генерації: " + e.message);
@@ -107,7 +111,9 @@ function App() {
       nozzleTemp: parseInt(nozzleTemp, 10),
       plateType,
       filamentType,
-      turns: parseInt(turns, 10)
+      turns: parseInt(turns, 10),
+      enablePad,
+      padLayers: parseInt(padLayers, 10)
     };
     const gcode = generateGCode(spiralPoints, config);
     const blob = new Blob([gcode], { type: 'text/plain' });
@@ -120,13 +126,6 @@ function App() {
     aGcode.click();
     document.body.removeChild(aGcode);
     URL.revokeObjectURL(url);
-
-    const a3mf = document.createElement('a');
-    a3mf.href = `pads/base_pad_${imageSize}.3mf`;
-    a3mf.download = `base_pad_${imageSize}.3mf`;
-    document.body.appendChild(a3mf);
-    a3mf.click();
-    document.body.removeChild(a3mf);
   };
 
   useEffect(() => {
@@ -267,6 +266,30 @@ function App() {
           />
         </div>
 
+        <div className="control-group">
+          <label>Контраст зображення: {contrast}</label>
+          <input
+            type="range"
+            min="0.5"
+            max="2.5"
+            step="0.1"
+            value={contrast}
+            onChange={(e) => setContrast(parseFloat(e.target.value))}
+            className="slider"
+          />
+        </div>
+
+        <div className="control-group">
+          <label className="checkbox-label">
+            <input 
+              type="checkbox" 
+              checked={invert} 
+              onChange={(e) => setInvert(e.target.checked)} 
+            />
+            Інвертувати кольори (для темного фону)
+          </label>
+        </div>
+
         <div className="advanced-settings-toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
           <span>{showAdvanced ? '▼' : '▶'} Додаткові налаштування</span>
         </div>
@@ -327,7 +350,7 @@ function App() {
           }}>
             <option value="a1mini">Bambu Lab A1 mini</option>
             <option value="x1p1a1">Bambu Lab X1 / P1 / A1</option>
-            <option value="h2d">H2D(Right Nozzle)</option>
+            <option value="h2d">H2D (Right Nozzle)</option>
           </select>
         </div>
 
@@ -343,6 +366,31 @@ function App() {
             )}
           </select>
         </div>
+
+        <div className="control-group">
+          <label className="checkbox-label">
+            <input 
+              type="checkbox" 
+              checked={enablePad} 
+              onChange={(e) => setEnablePad(e.target.checked)} 
+            />
+            Додати підкладку в G-Code
+          </label>
+        </div>
+
+        {enablePad && (
+          <div className="control-group">
+            <label>Кількість шарів (1 шар = 0.2мм)</label>
+            <input 
+              type="number" 
+              min="1" 
+              max="20" 
+              step="1"
+              value={padLayers} 
+              onChange={(e) => setPadLayers(e.target.value)} 
+            />
+          </div>
+        )}
 
         <button className="btn generate-btn" onClick={handleGenerate} disabled={!image || isCropping}>
           Згенерувати спіраль
@@ -424,9 +472,8 @@ function App() {
             <h3>Як створити спіральну картину</h3>
 
             <div className="video-container">
-              {/* Заміни 'VIDEO_ID' на реальний ID відео з YouTube */}
               <iframe
-                src="https://www.youtube.com/watch?v=-NRKDgkUtJM"
+                src="https://www.youtube.com/embed/-NRKDgkUtJM"
                 title="Відеоінструкція"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen>
@@ -437,19 +484,18 @@ function App() {
               <li><strong>Налаштування:</strong> Обери свій принтер та сопло.</li>
               <li><strong>Завантаження:</strong> Завантаж фото (краще контрастне)</li>
               <li><strong>Генерація:</strong> Обріж фото та натисни кнопку "Згенерувати спіраль".</li>
-              <li><strong>Налаштування витків:</strong> Якщо прев'ю виглядає занадто світлим або деталі нечіткі, збільш кількість витків і знову натисни "Згенерувати".</li>
-              <li><strong>Завантаження G-Code:</strong> Натисни зелену кнопку завантаження. На твій комп'ютер збережуться два файли: <code>.3mf</code> (біла підкладка) та <code>.gcode</code> (чорна спіраль).</li>
-              <li><strong>Перший етап друку:</strong> Відкрий завантажений файл <code>.3mf</code> у своєму слайсері (Bambu Studio) та відправ на друк <strong>світлим</strong> пластиком.</li>
-              <li><strong>Другий етап друку:</strong> Коли принтер завершить друк підкладки, <strong>НЕ ЗНІМАЙ ЇЇ ЗІ СТОЛУ!</strong> Заправ у принтер <strong>темним</strong> пластик і просто запусти скачаний файл <code>.gcode</code> як нове завдання.</li>
+              <li><strong>Налаштування витків та контрасту:</strong> Відрегулюй кількість витків та контраст, після чого натисни "Згенерувати".</li>
+              <li><strong>Завантаження G-Code:</strong> Натисни зелену кнопку завантаження G-Code.</li>
+              <li><strong>Друк:</strong> Надрукуй отриманий G-Code на принтері. Якщо увімкнено підкладку, принтер призупиниться після друку білої підкладки для зміни філаменту на темний.</li>
             </ol>
 
             <div className="warning-text">
-              ⚠️ УВАГА: Перед запуском спіралі, вимкнути калібрування столу.
+              ⚠️ УВАГА: Перед запуском спіралі вимкніть авто-калібрування столу (Bed Leveling).
             </div>
 
             {printerModel === 'h2d' && (
               <div className="warning-text" style={{ backgroundColor: '#e0e7ff', color: '#3730a3', marginTop: '10px' }}>
-                ℹ️ <strong>Для принтера H2D:</strong> Білий пластик заправте в ЛІВЕ сопло і надрукуйте підкладку. Чорний пластик заправте в ПРАВЕ сопло — файл спіралі автоматично включить праве сопло!
+                ℹ️ <strong>Для принтера H2D:</strong> Білий пластик заправте в ЛІВЕ сопло (T1), чорний — в ПРАВЕ сопло (T0).
               </div>
             )}
           </div>

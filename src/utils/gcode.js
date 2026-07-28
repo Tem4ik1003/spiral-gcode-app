@@ -51,6 +51,104 @@ M107 ; turn off fan
 M84 ; disable motors
 `;
 
+const generateSolidInfill = (cx, cy, radius, lineWidth, layerHeight, angle, feedrate) => {
+  const gcode = [];
+  const rad = angle * Math.PI / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const filamentArea = Math.PI * Math.pow(1.75 / 2, 2);
+
+  let isEven = true;
+  let firstPoint = true;
+  let prevX = 0, prevY = 0;
+
+  for (let y = -radius + lineWidth / 2; y <= radius - lineWidth / 2; y += lineWidth) {
+    const x_extent = Math.sqrt(radius * radius - y * y);
+    
+    let x_start = isEven ? -x_extent : x_extent;
+    let x_end = isEven ? x_extent : -x_extent;
+
+    // Rotate and translate start point
+    const startX = cx + (x_start * cos - y * sin);
+    const startY = cy + (x_start * sin + y * cos);
+
+    // Rotate and translate end point
+    const endX = cx + (x_end * cos - y * sin);
+    const endY = cy + (x_end * sin + y * cos);
+
+    if (firstPoint) {
+      gcode.push(`G1 X${startX.toFixed(3)} Y${startY.toFixed(3)} F7200`);
+      firstPoint = false;
+    } else {
+      // Extrude connecting line along the edge
+      const dxEdge = startX - prevX;
+      const dyEdge = startY - prevY;
+      const distEdge = Math.sqrt(dxEdge * dxEdge + dyEdge * dyEdge);
+      const eEdge = (distEdge * lineWidth * layerHeight) / filamentArea;
+      gcode.push(`G1 X${startX.toFixed(3)} Y${startY.toFixed(3)} E${eEdge.toFixed(5)} F${feedrate}`);
+    }
+
+    // Extrude the main line
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const eLength = (dist * lineWidth * layerHeight) / filamentArea;
+    gcode.push(`G1 X${endX.toFixed(3)} Y${endY.toFixed(3)} E${eLength.toFixed(5)} F${feedrate}`);
+
+    prevX = endX;
+    prevY = endY;
+    isEven = !isEven;
+  }
+  return gcode;
+};
+
+const generatePadLayer = (cx, cy, maxPrintRadius, z, layerHeight, lineWidth, isFirstLayer, layerIndex, isTopLayer) => {
+  const gcodeLines = [];
+  gcodeLines.push(`;LAYER_CHANGE`);
+  gcodeLines.push(`;Z:${z.toFixed(3)}`);
+  gcodeLines.push(`;HEIGHT:${layerHeight.toFixed(3)}`);
+  
+  const speedScale = isFirstLayer ? 0.5 : 1.0;
+  const feedrateWall = Math.round(3600 * speedScale); // 60 mm/s
+  const feedrateInfill = Math.round(10800 * speedScale); // 180 mm/s
+  
+  gcodeLines.push(`G1 Z${z.toFixed(3)} F7200`);
+  
+  // Outer Wall
+  gcodeLines.push(`;TYPE:Outer wall`);
+  let currentR = maxPrintRadius - lineWidth / 2;
+  const filamentArea = Math.PI * Math.pow(1.75 / 2, 2);
+  let wallExtrusion = (2 * Math.PI * currentR * lineWidth * layerHeight) / filamentArea;
+  
+  gcodeLines.push(`;WIDTH:${lineWidth.toFixed(3)}`);
+  gcodeLines.push(`G1 X${(cx + currentR).toFixed(3)} Y${cy.toFixed(3)} F7200`);
+  gcodeLines.push(`G3 X${(cx - currentR).toFixed(3)} Y${cy.toFixed(3)} I${(-currentR).toFixed(3)} J0 E${(wallExtrusion / 2).toFixed(5)} F${feedrateWall}`);
+  gcodeLines.push(`G3 X${(cx + currentR).toFixed(3)} Y${cy.toFixed(3)} I${currentR.toFixed(3)} J0 E${(wallExtrusion / 2).toFixed(5)} F${feedrateWall}`);
+  
+  // Inner Wall
+  gcodeLines.push(`;TYPE:Inner wall`);
+  currentR -= lineWidth;
+  wallExtrusion = (2 * Math.PI * currentR * lineWidth * layerHeight) / filamentArea;
+  gcodeLines.push(`;WIDTH:${lineWidth.toFixed(3)}`);
+  gcodeLines.push(`G1 X${(cx + currentR).toFixed(3)} Y${cy.toFixed(3)} F7200`);
+  gcodeLines.push(`G3 X${(cx - currentR).toFixed(3)} Y${cy.toFixed(3)} I${(-currentR).toFixed(3)} J0 E${(wallExtrusion / 2).toFixed(5)} F${feedrateWall}`);
+  gcodeLines.push(`G3 X${(cx + currentR).toFixed(3)} Y${cy.toFixed(3)} I${currentR.toFixed(3)} J0 E${(wallExtrusion / 2).toFixed(5)} F${feedrateWall}`);
+  
+  // Solid Infill
+  let type = `;TYPE:Internal solid infill`;
+  if (isFirstLayer) type = `;TYPE:Bottom surface`;
+  else if (isTopLayer) type = `;TYPE:Top surface`;
+  gcodeLines.push(type);
+  gcodeLines.push(`;WIDTH:${lineWidth.toFixed(3)}`);
+  const infillRadius = currentR - lineWidth / 2;
+  const angle = isFirstLayer ? 45 : (layerIndex % 2 === 0 ? 45 : 135);
+  
+  const infillGCode = generateSolidInfill(cx, cy, infillRadius, lineWidth, layerHeight, angle, feedrateInfill);
+  gcodeLines.push(...infillGCode);
+  
+  return gcodeLines;
+};
+
 export const generateGCode = (points, config) => {
   const { nozzleDiameter, layerHeight, printerModel, imageSize, bedTemp, nozzleTemp, plateType, filamentType, turns } = config;
 
@@ -77,11 +175,11 @@ export const generateGCode = (points, config) => {
   }
 
   const parsedSize = parseInt(imageSize, 10);
-  let maxPrintRadius = (parsedSize / 2) - 2;
+  const maxPrintRadius = (parsedSize / 2) - 2;
 
   const pitch = maxPrintRadius / turns;
-  const minWidth = Math.max(0.35, nozzleDiameter * 0.5);
-  const maxWidth = pitch * 0.95;
+  const minWidth = Math.max(0.3, nozzleDiameter * 0.75);
+  const maxWidth = Math.min(pitch * 0.95, nozzleDiameter * 2.2);
 
   if (points.length === 0) return '';
 
@@ -91,9 +189,49 @@ export const generateGCode = (points, config) => {
   const cxPixel = points[0].x;
   const cyPixel = points[0].y;
 
-  let currentZ = 0.14;
+  // Always extrude Prime Line to establish nozzle flow
+  gcodeLines.push(`;===== Prime Line =====`);
+  gcodeLines.push(`G1 X5 Y5 F7200`);
+  gcodeLines.push(`G1 Z0.2 F1200`);
+  gcodeLines.push(`G1 X5 Y105 E10 F1200`);
+  gcodeLines.push(`G1 X6 Y105 F7200`);
+  gcodeLines.push(`G1 X6 Y5 E10 F1200`);
+  gcodeLines.push(`G1 Z2.0 F1200`);
+  gcodeLines.push(`G92 E0`);
 
-  gcodeLines.push(`G1 X${cx.toFixed(3)} Y${cy.toFixed(3)} F2400`);
+  let currentZ = 0.2;
+  const enablePad = config.enablePad !== false;
+  const padLayers = config.padLayers || 5;
+  const firstLayerHeight = 0.2;
+  
+  if (enablePad && padLayers > 0) {
+    const numLayers = padLayers;
+    const lineWidth = Math.max(0.42, nozzleDiameter * 1.05);
+    
+    for (let i = 0; i < numLayers; i++) {
+      const isFirstLayer = i === 0;
+      const currentLayerHeight = isFirstLayer ? firstLayerHeight : layerHeight;
+      if (i > 0) {
+        currentZ += currentLayerHeight;
+      }
+      const isTopLayer = i === numLayers - 1;
+      
+      const layerGcode = generatePadLayer(cx, cy, maxPrintRadius, currentZ, currentLayerHeight, lineWidth, isFirstLayer, i, isTopLayer);
+      gcodeLines.push(...layerGcode);
+    }
+    
+    // Add Pause before spiral starts for filament change
+    gcodeLines.push(`M400 ; wait all motion done`);
+    gcodeLines.push(`M0 ; Pause for filament change`);
+    
+    // Position Z for the spiral to print on top of the pad
+    currentZ += layerHeight;
+  } else {
+    currentZ = firstLayerHeight;
+  }
+
+  gcodeLines.push(`;===== SPIRAL START =====`);
+  gcodeLines.push(`G1 X${cx.toFixed(3)} Y${cy.toFixed(3)} F7200`);
   gcodeLines.push(`G1 Z${currentZ.toFixed(3)} F2400`);
 
   gcodeLines.push(`;LAYER_CHANGE`);
@@ -103,9 +241,12 @@ export const generateGCode = (points, config) => {
 
   let prevX = cx;
   let prevY = cy;
-  let firstArtPoint = true;
 
-  const flowMultiplier = 1.4;
+  const flowMultiplier = 1.15;
+  const filamentArea = Math.PI * Math.pow(1.75 / 2, 2);
+
+  // Set feedrate once for modal G1 movement
+  gcodeLines.push(`G1 F2400`);
 
   for (let i = 1; i < points.length; i++) {
     const pt = points[i];
@@ -119,11 +260,10 @@ export const generateGCode = (points, config) => {
 
     const w = minWidth + (1 - pt.brightness) * (maxWidth - minWidth);
 
-    const filamentArea = Math.PI * Math.pow(1.75 / 2, 2);
     const volume = w * layerHeight * distance * flowMultiplier;
     const eLength = volume / filamentArea;
 
-    gcodeLines.push(`G1 X${x.toFixed(3)} Y${y.toFixed(3)} E${eLength.toFixed(5)} F2400`);
+    gcodeLines.push(`G1 X${x.toFixed(3)} Y${y.toFixed(3)} E${eLength.toFixed(5)}`);
 
     prevX = x;
     prevY = y;

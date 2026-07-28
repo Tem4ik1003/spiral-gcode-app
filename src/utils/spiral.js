@@ -12,12 +12,12 @@ export const getImageData = (imageElement, width, height) => {
   return ctx.getImageData(0, 0, width, height);
 };
 
-export const getBrightness = (imageData, x, y) => {
+export const getBrightness = (imageData, x, y, contrast = 1.5, invert = false) => {
   const ix = Math.floor(x);
   const iy = Math.floor(y);
   
   if (ix < 0 || ix >= imageData.width || iy < 0 || iy >= imageData.height) {
-    return 1; 
+    return invert ? 0 : 1; 
   }
   
   const index = (iy * imageData.width + ix) * 4;
@@ -26,11 +26,15 @@ export const getBrightness = (imageData, x, y) => {
   const b = imageData.data[index + 2];
   
   let brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  brightness = (brightness - 0.2) * 1.5;
+  if (invert) {
+    brightness = 1 - brightness;
+  }
+  brightness = (brightness - 0.2) * contrast;
   return Math.max(0, Math.min(1, brightness));
 };
 
-export const generateSpiralPoints = (imageData, turns) => {
+export const generateSpiralPoints = (imageData, turns, options = {}) => {
+  const { contrast = 1.5, invert = false } = options;
   const points = [];
   const width = imageData.width;
   const height = imageData.height;
@@ -48,7 +52,7 @@ export const generateSpiralPoints = (imageData, turns) => {
     const x = cx + r * Math.cos(theta);
     const y = cy + r * Math.sin(theta);
     
-    const brightness = getBrightness(imageData, x, y);
+    const brightness = getBrightness(imageData, x, y, contrast, invert);
     
     points.push({ x, y, r, theta, brightness });
     
